@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} – Songless{% endblock %}
+{% block main_class %}game{% endblock %}
+{% block content %}
+<div class="game-bar">
+  <div>
+    <span class="game-playlist">{{ title }}</span>
+    <span class="game-round">Song <b id="round">1</b> von <b id="rounds">–</b></span>
+  </div>
+  <div class="game-score"><b id="score">0</b><span>Punkte</span></div>
+</div>
+
+<div class="stages" id="stages" aria-label="Ausschnitte"></div>
+
+<button id="play" class="play" aria-label="Ausschnitt abspielen">
+  <span>
+    <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5Z"/></svg>
+    <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>
+  </span>
+</button>
+
+<div id="ask" class="ask">
+  <div class="guess-row">
+    <label for="guess" class="sr-only">Songtitel</label>
+    <input id="guess" list="titles" placeholder="Songtitel suchen" autocomplete="off">
+    <button id="send" class="btn">Raten</button>
+  </div>
+  <button id="skip" class="text-btn">Überspringen <span id="next-len"></span></button>
+</div>
+
+<p id="feedback" role="status" aria-live="polite"></p>
+
+<div id="reveal" class="reveal" hidden>
+  <p class="reveal-label">Das war</p>
+  <p class="answer"></p>
+  <button id="next" class="btn">Nächster Song</button>
+</div>
+
+<div id="end" class="end" hidden>
+  <p class="end-score"><b id="final"></b> Punkte</p>
+  <ol id="summary" class="summary"></ol>
+  <form id="save" class="guess-row">
+    <label for="name" class="sr-only">Dein Name</label>
+    <input id="name" maxlength="20" placeholder="Dein Name" required>
+    <button class="btn">Highscore speichern</button>
+  </form>
+  <a class="text-btn" href="{{ replay_url }}">Nochmal spielen</a>
+</div>
+
+<datalist id="titles">{% for t in titles %}<option value="{{ t }}">{% endfor %}</datalist>
+{% endblock %}
+
+{% block scripts %}
+<script>const HS_URL = {{ hs_url|tojson }};</script>
+<script src="{{ static('game.js') }}"></script>
+{% endblock %}

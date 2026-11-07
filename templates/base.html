@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Songless{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ static('style.css') }}">
+</head>
+<body>
+<header class="site-header">
+  <a class="brand" href="{{ url_for('index') }}" aria-label="Songless Startseite">
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="2" y="15" width="4" height="7" rx="1.5"/><rect x="8" y="11" width="4" height="11" rx="1.5"/>
+      <rect x="14" y="6" width="4" height="16" rx="1.5"/><rect x="20" y="2" width="2" height="20" rx="1" opacity=".35"/>
+    </svg>
+    Songless
+  </a>
+  <nav>
+    <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Playlists</a>
+    <a href="{{ url_for('highscores') }}" {% if request.endpoint == 'highscores' %}aria-current="page"{% endif %}>Highscores</a>
+  </nav>
+</header>
+<main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>

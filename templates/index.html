@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <h1>Erkennst du den Song nach 0.1&nbsp;Sekunden?</h1>
+  <p class="lead">Füg eine Playlist von YouTube, Spotify oder Apple Music ein. Die Songs werden im Hintergrund geladen, danach kannst du direkt losspielen.</p>
+  <form method="post" action="{{ url_for('add_playlist') }}" class="url-form">
+    <label for="url" class="sr-only">Link zur Playlist von YouTube, Spotify oder Apple Music</label>
+    <input id="url" name="url" type="text" placeholder="Link zu YouTube, Spotify oder Apple Music" required>
+    <button class="btn">Playlist importieren</button>
+  </form>
+  {% if request.args.error %}
+  <p class="form-error">{{ request.args.error }}. Kopier den Link über „Teilen“ in der jeweiligen App.</p>
+  {% endif %}
+</section>
+
+<section>
+  <div class="section-head">
+    <h2>Deine Playlists</h2>
+    {% if mix_count %}
+    <a class="btn btn-small" href="{{ url_for('play_all') }}">Aus allen spielen ({{ mix_count }} Songs)</a>
+    {% endif %}
+  </div>
+  {% if playlists %}
+  <ul class="playlists">
+    {% for p in playlists %}
+    <li class="playlist" data-id="{{ p.id }}" data-status="{{ p.status }}">
+      <div class="pl-info">
+        <span class="pl-title">{{ p.title or p.url }}</span>
+        <span class="pl-meta status {% if p.status == 'error' %}is-error{% endif %}">
+          {% if p.status == 'ready' %}{{ p.songs }} Songs{% else %}{{ p.message or 'Wartet auf Download' }}{% endif %}
+        </span>
+        {% if p.status in ('downloading', 'pending') %}
+        <div class="meter" role="progressbar" aria-label="Download-Fortschritt">
+          <div style="width: {{ (100 * p.progress / p.total) if p.total else 0 }}%"></div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="pl-actions">
+        {% if p.songs %}
+        <a class="btn btn-small" href="{{ url_for('play', pid=p.id) }}">Spielen</a>
+        {% endif %}
+        <a class="icon-btn" href="{{ url_for('highscores', playlist=p.id) }}" title="Highscores" aria-label="Highscores">
+          <svg viewBox="0 0 24 24"><path d="M7 4h10v4a5 5 0 0 1-10 0V4Zm5 9v4m-4 3h8M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>
+        </a>
+        <form method="post" action="{{ url_for('sync_playlist', pid=p.id) }}">
+          <button class="icon-btn" title="Neue Songs laden" aria-label="Neue Songs laden" {% if p.status == 'downloading' %}disabled{% endif %}>
+            <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8m0-4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16m0 4v-4h-4"/></svg>
+          </button>
+        </form>
+        <form method="post" action="{{ url_for('delete_playlist', pid=p.id) }}" onsubmit="return confirm('Playlist und alle geladenen Songs löschen?')">
+          <button class="icon-btn danger" title="Playlist löschen" aria-label="Playlist löschen">
+            <svg viewBox="0 0 24 24"><path d="M5 7h14M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+          </button>
+        </form>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="empty">Noch keine Playlist da. Füg oben einen Link ein, um zu starten.</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.playlist[data-status="downloading"], .playlist[data-status="pending"]').forEach(el => {
+  const timer = setInterval(async () => {
+    const s = await (await fetch(`/api/playlist/${el.dataset.id}`)).json();
+    el.querySelector('.status').textContent = s.message || s.status;
+    const bar = el.querySelector('.meter > div');
+    if (bar && s.total) bar.style.width = (100 * s.progress / s.total) + '%';
+    if (!['downloading', 'pending'].includes(s.status)) { clearInterval(timer); location.reload(); }
+  }, 2000);
+});
+</script>
+{% endblock %}
