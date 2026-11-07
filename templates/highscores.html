@@ -4,10 +4,10 @@
 <section class="scores-head">
   <h1>Highscores</h1>
   <form method="get">
-    <label for="playlist" class="sr-only">Playlist filtern</label>
+    <label for="playlist" class="sr-only">Filter by playlist</label>
     <select id="playlist" name="playlist" onchange="this.form.submit()">
-      <option value="">Alle Einträge</option>
-      <option value="all" {% if sel == 'all' %}selected{% endif %}>Mix aus allen Playlists</option>
+      <option value="">All entries</option>
+      <option value="all" {% if sel == 'all' %}selected{% endif %}>Mix of all playlists</option>
       {% for p in playlists %}
       <option value="{{ p.id }}" {% if p.id|string == sel %}selected{% endif %}>{{ p.title or p.url }}</option>
       {% endfor %}
@@ -22,13 +22,13 @@
     <span class="rank">{{ loop.index }}</span>
     <span class="who">
       <span class="name">{{ h.name }}</span>
-      <span class="where">{{ 'Mix aus allen Playlists' if h.is_mix else (h.playlist or 'Gelöschte Playlist') }}, {{ h.created_at[:10] }}</span>
+      <span class="where">{{ 'Mix of all playlists' if h.is_mix else (h.playlist or 'Deleted playlist') }}, {{ h.created_at[:10] }}</span>
     </span>
-    <span class="pts"><b>{{ h.score }}</b><small>von {{ h.rounds * 100 }}</small></span>
+    <span class="pts"><b>{{ h.score }}</b><small>of {{ h.rounds * 100 }}</small></span>
   </li>
   {% endfor %}
 </ol>
 {% else %}
-<p class="empty">Noch keine Einträge. Spiel eine Runde und trag dich als Erste:r ein.</p>
+<p class="empty">No entries yet. Play a round and be the first.</p>
 {% endif %}
 {% endblock %}

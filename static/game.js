@@ -13,13 +13,13 @@ async function api(path, body) {
 }
 
 const MESSAGES = {
-  correct: (s) => `Richtig, ${s.history.at(-1).points} Punkte bei ${s.history.at(-1).time}s.`,
-  wrong:   (s) => `Leider falsch. Jetzt hörst du ${s.stages[s.stage]}s.`,
-  skipped: (s) => `Übersprungen. Jetzt hörst du ${s.stages[s.stage]}s.`,
-  failed:  ()  => 'Nicht erraten, 0 Punkte.',
+  correct: (s) => `Correct! ${s.history.at(-1).points} points at ${s.history.at(-1).time}s.`,
+  wrong:   (s) => `Wrong. You now hear ${s.stages[s.stage]}s.`,
+  skipped: (s) => `Skipped. You now hear ${s.stages[s.stage]}s.`,
+  failed:  ()  => 'Not guessed, 0 points.',
 };
 
-// ---------- Anzeige ----------
+// ---------- Rendering ----------
 function render(s) {
   state = s;
   const n = s.stages.length;
@@ -35,11 +35,11 @@ function render(s) {
     else if (i === s.stage) cls = !s.done ? 'open current' : (last.points ? 'open hit' : 'open miss');
     else if (s.done) cls = 'open';
     return `<div class="stage ${cls}" style="--h:${(i + 1) / n * 100}%">
-              <div class="bar"><i></i></div><b>${sec}s</b><small>${s.points[i]} Punkte</small>
+              <div class="bar"><i></i></div><b>${sec}s</b><small>${s.points[i]} points</small>
             </div>`;
   }).join('');
 
-  $('#next-len').textContent = s.stage < n - 1 ? `(${s.stages[s.stage + 1]}s hören)` : '(aufgeben)';
+  $('#next-len').textContent = s.stage < n - 1 ? `(hear ${s.stages[s.stage + 1]}s)` : '(give up)';
   $('#feedback').textContent = s.result ? MESSAGES[s.result](s) : '';
   $('#feedback').className = s.result || '';
 
@@ -48,7 +48,7 @@ function render(s) {
   $('#next').hidden = s.finished;
   if (s.done) {
     $('#reveal .answer').innerHTML =
-      `${esc(s.answer)}<a href="https://youtu.be/${esc(s.youtube_id)}" target="_blank" rel="noopener">Auf YouTube anhören</a>`;
+      `${esc(s.answer)}<a href="https://youtu.be/${esc(s.youtube_id)}" target="_blank" rel="noopener">Listen on YouTube</a>`;
   }
 
   $('#end').hidden = !s.finished;
@@ -63,7 +63,7 @@ function render(s) {
   }
 }
 
-// Fortschritt beim Abspielen: Balken füllen sich nacheinander, Ring läuft mit
+// Playback progress: bars fill one after another, the ring follows along
 function setProgress(t) {
   const S = state.stages;
   const bars = document.querySelectorAll('#stages .bar i');
@@ -85,7 +85,7 @@ function stop() {
 }
 
 async function play() {
-  if (source) return stop();          // zweiter Klick stoppt
+  if (source) return stop();          // second click stops
   await ctx.resume();
   if (!buffer) {
     $('#play').disabled = true;
@@ -107,12 +107,12 @@ async function play() {
   tick();
 }
 
-// ---------- Aktionen ----------
+// ---------- Actions ----------
 async function guess() {
   const g = $('#guess').value.trim();
   if (!g) return;
   if (!titles.has(g.toLowerCase())) {
-    $('#feedback').textContent = 'Wähl einen Titel aus der Vorschlagsliste aus.';
+    $('#feedback').textContent = 'Pick a title from the suggestion list.';
     $('#feedback').className = 'wrong';
     return;
   }

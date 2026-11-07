@@ -1,14 +1,14 @@
-/* Songless – "Nachtradio": tiefes Violett, Equalizer als Leitmotiv */
+/* Songless – "night radio": deep violet, equalizer as the core motif */
 :root {
-  --ink:    #15102F;   /* Hintergrund */
-  --night:  #201950;   /* Flächen */
-  --line:   #3A3175;   /* Linien, gesperrte Stufen */
-  --violet: #8A6CFF;   /* Primär */
-  --peach:  #FFB48C;   /* aktuelle Stufe, Fokus */
-  --mint:   #7DE3B6;   /* richtig */
-  --coral:  #FF7A86;   /* falsch */
-  --paper:  #F2EFFF;   /* Text */
-  --mist:   #A9A2D6;   /* Sekundärtext */
+  --ink:    #15102F;   /* background */
+  --night:  #201950;   /* surfaces */
+  --line:   #3A3175;   /* lines, locked stages */
+  --violet: #8A6CFF;   /* primary */
+  --peach:  #FFB48C;   /* current stage, focus */
+  --mint:   #7DE3B6;   /* correct */
+  --coral:  #FF7A86;   /* wrong */
+  --paper:  #F2EFFF;   /* text */
+  --mist:   #A9A2D6;   /* secondary text */
 
   --font: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --radius: 14px;
@@ -77,7 +77,7 @@ select { width: auto; padding-right: 40px; cursor: pointer; }
 .icon-btn.danger:hover { color: var(--coral); border-color: var(--coral); }
 .icon-btn:disabled { opacity: .35; cursor: default; }
 
-/* ---------- Startseite ---------- */
+/* ---------- Home ---------- */
 .hero { padding: 40px 0 56px; }
 .hero h1 { font-size: clamp(2.3rem, 7vw, 4rem); max-width: 14ch; }
 .lead { color: var(--mist); max-width: 52ch; margin: 18px 0 28px; font-size: 1.125rem; }
@@ -98,7 +98,7 @@ select { width: auto; padding-right: 40px; cursor: pointer; }
 .section-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 1rem; }
 .section-head h2 { margin: 0; }
 
-/* ---------- Spiel ---------- */
+/* ---------- Game ---------- */
 main.game { text-align: center; max-width: 620px; }
 .game-bar { display: flex; justify-content: space-between; align-items: flex-end; text-align: left; margin: 12px 0 40px; }
 .game-playlist { display: block; color: var(--mist); font-size: .95rem; max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -107,7 +107,7 @@ main.game { text-align: center; max-width: 620px; }
 .game-score b { display: block; font-size: 2.6rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; }
 .game-score span { color: var(--mist); font-size: .9rem; }
 
-/* Equalizer: jede Stufe ein Balken, Höhe = Länge des Ausschnitts */
+/* Equalizer: one bar per stage, height = snippet length */
 .stages { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; height: 210px; }
 .stage { display: flex; flex-direction: column; justify-content: flex-end; color: var(--mist); }
 .stage .bar {
@@ -128,7 +128,7 @@ main.game { text-align: center; max-width: 620px; }
 .stage.hit b        { color: var(--mint); }
 @keyframes hit { 0% { transform: scaleY(.6); transform-origin: bottom; } 60% { transform: scaleY(1.08); } 100% { transform: scaleY(1); } }
 
-/* Play-Button mit Fortschrittsring */
+/* Play button with progress ring */
 .play {
   --p: 0;
   width: 104px; height: 104px; margin: 36px auto 32px; padding: 6px; display: block;
@@ -181,7 +181,7 @@ main.game { text-align: center; max-width: 620px; }
 .pts small { color: var(--mist); }
 .score-row.is-new { background: rgb(138 108 255 / .2); border-radius: 10px; box-shadow: inset 4px 0 var(--violet); }
 
-/* ---------- Mobil ---------- */
+/* ---------- Mobile ---------- */
 @media (max-width: 560px) {
   .url-form, .guess-row { flex-direction: column; }
   .playlist { flex-wrap: wrap; }

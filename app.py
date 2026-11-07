@@ -13,12 +13,12 @@ from flask import Flask, Response, abort, jsonify, redirect, render_template, re
 from database import get_db, init_db
 from downloader import CLIP_SECONDS, DOWNLOAD_DIR, detect_start, is_supported_url, start_download
 
-# ---------------- Konfiguration ----------------
-STAGES = [0.1, 0.5, 2, 8, 20]      # Snippet-Längen in Sekunden
-POINTS = [100, 80, 60, 40, 20]     # Punkte, wenn in dieser Stufe erraten
-ROUNDS = 5                         # Songs pro Spiel
+# ---------------- Settings ----------------
+STAGES = [0.1, 0.5, 2, 8, 20]      # snippet lengths in seconds
+POINTS = [100, 80, 60, 40, 20]     # points for guessing at that stage
+ROUNDS = 5                         # songs per game
 
-assert STAGES[-1] <= CLIP_SECONDS, "längste Stufe darf nicht länger als CLIP_SECONDS sein"
+assert STAGES[-1] <= CLIP_SECONDS, "the longest stage must not exceed CLIP_SECONDS"
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(16))
@@ -27,14 +27,14 @@ init_db()
 
 @app.context_processor
 def static_helper():
-    """{{ static('style.css') }} -> /static/style.css?v=<Änderungszeit>, damit der Browser nie alte Dateien nimmt."""
+    """{{ static('style.css') }} -> /static/style.css?v=<mtime>, so the browser never serves stale files."""
     def static(filename):
         path = os.path.join(app.static_folder, filename)
         return url_for("static", filename=filename, v=int(os.path.getmtime(path)))
     return {"static": static}
 
 
-# ---------------- Helfer ----------------
+# ---------------- Helpers ----------------
 def norm(s: str) -> str:
     s = unicodedata.normalize("NFKD", s or "").casefold()
     return re.sub(r"[\W_]+", "", s)
@@ -49,7 +49,7 @@ def get_playlist(pid):
 def get_game():
     g = session.get("game")
     if not g:
-        abort(400, "Kein aktives Spiel")
+        abort(400, "No active game")
     return g
 
 
@@ -104,7 +104,7 @@ def index():
 def add_playlist():
     url = request.form.get("url", "").strip()
     if not is_supported_url(url):
-        return redirect(url_for("index", error="Das ist kein Link zu YouTube, Spotify oder Apple Music"))
+        return redirect(url_for("index", error="That is not a YouTube, Spotify or Apple Music link"))
     with get_db() as c:
         row = c.execute("SELECT id, status FROM playlists WHERE url=?", (url,)).fetchone()
         pid = row["id"] if row else c.execute("INSERT INTO playlists (url) VALUES (?)", (url,)).lastrowid
@@ -135,9 +135,9 @@ def playlist_status(pid):
     return jsonify({k: p[k] for k in ("status", "progress", "total", "message")})
 
 
-# ---------------- Spiel ----------------
+# ---------------- Game ----------------
 def start_game(pid=None):
-    """pid=None -> Mix aus allen Playlists."""
+    """pid=None -> mix of all playlists."""
     with get_db() as c:
         if pid is None:
             songs = c.execute("SELECT * FROM songs").fetchall()
@@ -145,7 +145,7 @@ def start_game(pid=None):
             songs = c.execute("SELECT * FROM songs WHERE playlist_id=?", (pid,)).fetchall()
     if not songs:
         return redirect(url_for("index"))
-    unique = list({norm(s["title"]): s for s in songs}.values())   # gleiche Songs aus mehreren Playlists nur 1x
+    unique = list({norm(s["title"]): s for s in songs}.values())   # same song in several playlists counts once
     picks = random.sample(unique, min(ROUNDS, len(unique)))
     session["game"] = {
         "pid": pid, "mix": pid is None,
@@ -155,7 +155,7 @@ def start_game(pid=None):
     key = "all" if pid is None else pid
     return render_template(
         "play.html",
-        title="Alle Playlists" if pid is None else get_playlist(pid)["title"],
+        title="All playlists" if pid is None else get_playlist(pid)["title"],
         titles=sorted({s["title"] for s in songs}, key=str.casefold),
         replay_url=url_for("play_all") if pid is None else url_for("play", pid=pid),
         hs_url=url_for("highscores", playlist=key),
@@ -180,7 +180,7 @@ def state():
 
 @app.get("/api/clip")
 def clip():
-    """Liefert nur den aktuell freigeschalteten Ausschnitt (kein Spicken im Netzwerk-Tab)."""
+    """Serves only the currently unlocked snippet (no peeking via the network tab)."""
     g = get_game()
     song = current_song(g)
     path = DOWNLOAD_DIR / song["filename"]
@@ -188,12 +188,12 @@ def clip():
         abort(404)
     length = STAGES[-1] if g["done"] else STAGES[g["stage"]]
     offset = song["start_offset"]
-    if offset is None:                      # ältere Downloads: Stille einmalig nachträglich messen
+    if offset is None:                      # older downloads: measure leading silence once
         offset = detect_start(path)
         with get_db() as c:
             c.execute("UPDATE songs SET start_offset=? WHERE id=?", (offset, song["id"]))
     pcm = subprocess.run(
-        ["ffmpeg", "-v", "error", "-ss", str(offset), "-t", str(length), "-i", str(path),  # ab dem ersten Ton
+        ["ffmpeg", "-v", "error", "-ss", str(offset), "-t", str(length), "-i", str(path),  # start at the first sound
          "-f", "s16le", "-ac", "2", "-ar", "44100", "pipe:1"],
         capture_output=True, check=True,
     ).stdout

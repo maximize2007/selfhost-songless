@@ -15,8 +15,8 @@ from database import get_db
 
 DOWNLOAD_DIR = Path(__file__).parent / "downloads"
 MAX_SONGS = 200
-CLIP_SECONDS = 30            # so viele Sekunden ab Songanfang werden geladen (Puffer für Stille am Anfang)
-SILENCE_DB = -30            # alles leiser als das gilt am Songanfang als Stille und wird übersprungen
+CLIP_SECONDS = 30            # seconds downloaded from the start of each song (buffer for leading silence)
+SILENCE_DB = -60            # anything quieter than this at the start counts as silence and is skipped
 
 SPOTIFY_RE = re.compile(r"(?:open\.spotify\.com/(?:intl-[\w-]+/)?playlist/|spotify:playlist:)([A-Za-z0-9]+)")
 APPLE_RE = re.compile(r"^https?://(?:embed\.)?music\.apple\.com/[a-z]{2}/(?:playlist|album)/", re.I)
@@ -29,9 +29,9 @@ _JUNK = re.compile(
 _BAD_MATCH = re.compile(r"\b(live|cover|karaoke|instrumental|remix|8d|slowed|sped up|reverb|nightcore)\b", re.I)
 
 
-# ---------------- JS-Runtime für YouTube ----------------
+# ---------------- JS runtime for YouTube ----------------
 def find_js_runtime() -> dict:
-    """Sucht Deno (auch ohne aktuellen PATH), sonst Node.js. Override: Umgebungsvariable DENO_PATH."""
+    """Finds Deno (even if PATH is outdated), otherwise Node.js. Override with the DENO_PATH env variable."""
     candidates = [
         os.environ.get("DENO_PATH"),
         shutil.which("deno"),
@@ -46,16 +46,16 @@ def find_js_runtime() -> dict:
     if node := shutil.which("node"):
         print(f"[songless] JS-Runtime: node ({node})")
         return {"node": {"path": node}}
-    print("[songless] WARNUNG: Keine JS-Runtime gefunden – Downloads werden gedrosselt.")
+    print("[songless] WARNING: no JS runtime found, YouTube downloads will be throttled. Install Deno (see README).")
     return {"deno": {}}
 
 
 JS_RUNTIMES = find_js_runtime()
 
 
-# ---------------- Stille am Anfang ----------------
+# ---------------- Leading silence ----------------
 def detect_start(path) -> float:
-    """Sekunde, an der nach der Stille am Songanfang der erste Ton kommt (0.0 wenn sofort Ton)."""
+    """Second at which the first sound starts after leading silence (0.0 if sound starts immediately)."""
     res = subprocess.run(
         ["ffmpeg", "-hide_banner", "-t", str(CLIP_SECONDS), "-i", str(path),
          "-af", f"silencedetect=noise={SILENCE_DB}dB:d=0.05", "-f", "null", "-"],
@@ -67,12 +67,12 @@ def detect_start(path) -> float:
     total = min(int(dur[1]) * 3600 + int(dur[2]) * 60 + float(dur[3]), CLIP_SECONDS) if dur else CLIP_SECONDS
     if start and end and float(start.group(1)) <= 0.05:
         offset = float(end.group(1))
-        if offset < total - 0.5:                 # komplett stille Datei -> nichts schneiden
+        if offset < total - 0.5:                 # completely silent file -> don't cut
             return round(offset, 3)
     return 0.0
 
 
-# ---------------- Titel ----------------
+# ---------------- Titles ----------------
 def clean_title(info: dict) -> str:
     """'Artist - Song (Official Video) [HD]' -> 'Artist - Song'"""
     track, artist = info.get("track"), info.get("artist") or info.get("creator")
@@ -94,7 +94,7 @@ def _norm(s: str) -> str:
     return re.sub(r"[\W_]+", "", (s or "").casefold())
 
 
-# ---------------- Quellen ----------------
+# ---------------- Sources ----------------
 def is_spotify(url: str) -> bool:
     return bool(SPOTIFY_RE.search(url))
 
@@ -129,7 +129,7 @@ def _spotify_jobs(url):
     jobs = []
     for item in pl.tracks:
         t = item.track
-        if t and getattr(t, "artists", None):           # lokale Dateien, Podcasts … überspringen
+        if t and getattr(t, "artists", None):           # skip local files, podcasts, …
             jobs.append(_search_job(t.id, t.artists[0].name, t.name, (t.duration_ms or 0) / 1000))
     return pl.name, jobs
 
@@ -150,11 +150,11 @@ def _iso_seconds(d):
 
 
 def _apple_jobs(url):
-    """Liest die Titelliste aus der öffentlichen Apple-Music-Webseite (kein Account/Token nötig)."""
+    """Reads the track list from the public Apple Music web page (no account or token needed)."""
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/130.0 Safari/537.36",
-        "Accept-Language": "de-AT,de;q=0.9,en;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
     })
     page = urllib.request.urlopen(req, timeout=20).read().decode("utf-8", "replace")
 
@@ -170,7 +170,7 @@ def _apple_jobs(url):
             seen.add(k)
             jobs.append(_search_job(f"am:{key or k}", artist, name, dur))
 
-    # 1) Interne Seitendaten (vollständigste Quelle)
+    # 1) internal page data (most complete source)
     m = re.search(r'<script[^>]*id="serialized-server-data"[^>]*>(.*?)</script>', page, re.S)
     if m:
         try:
@@ -197,12 +197,12 @@ def _apple_jobs(url):
                     add(d.get("url"), artist, d["name"], _iso_seconds(d.get("duration")))
 
     if not jobs:
-        raise ValueError("Keine Songs gefunden – ist die Playlist öffentlich?")
+        raise ValueError("No songs found. Is the playlist public?")
     return title, jobs[:MAX_SONGS]
 
 
 def _find_on_youtube(ydl, query, duration):
-    """Beste der ersten 5 Treffer: Länge möglichst nah am Original, keine Live/Cover-Versionen."""
+    """Best of the top 5 results: duration closest to the original, no live/cover versions."""
     res = ydl.extract_info(f"ytsearch5:{query}", download=False)
     cands = [e for e in (res.get("entries") or []) if e and e.get("id")]
     if not cands:
@@ -225,13 +225,13 @@ def _set(pid: int, **cols):
 
 
 def start_download(pid: int, url: str):
-    _set(pid, status="downloading", progress=0, message="Starte …")
+    _set(pid, status="downloading", progress=0, message="Starting…")
     threading.Thread(target=_download, args=(pid, url), daemon=True).start()
 
 
 def _download(pid: int, url: str):
     try:
-        _set(pid, message="Lese Playlist …")
+        _set(pid, message="Reading playlist…")
         if is_spotify(url):
             title, jobs = _spotify_jobs(url)
         elif is_apple(url):
@@ -248,7 +248,7 @@ def _download(pid: int, url: str):
         opts = {
             "format": "bestaudio/best",
             "outtmpl": str(out_dir / "%(id)s.%(ext)s"),
-            # nur die ersten CLIP_SECONDS laden statt des ganzen Songs
+            # download only the first CLIP_SECONDS instead of the whole song
             "download_ranges": download_range_func(None, [(0, CLIP_SECONDS)]),
             "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "5"}],
             "noplaylist": True,
@@ -260,20 +260,20 @@ def _download(pid: int, url: str):
         errors = 0
         with yt_dlp.YoutubeDL(opts) as ydl, yt_dlp.YoutubeDL(search_opts) as search:
             for i, job in enumerate(jobs, 1):
-                _set(pid, progress=i - 1, message=f"Lade {i}/{len(jobs)}: {job['label']}")
+                _set(pid, progress=i - 1, message=f"Downloading {i}/{len(jobs)}: {job['label']}")
                 if job["key"] in have:
                     continue
                 try:
                     yt_id = job.get("yt_id") or _find_on_youtube(search, job["query"], job["duration"])
                     if not yt_id:
-                        raise LookupError("kein YouTube-Treffer")
+                        raise LookupError("no YouTube match")
                     v = ydl.extract_info(f"https://www.youtube.com/watch?v={yt_id}", download=True)
                     path = Path((v.get("requested_downloads") or [{}])[0].get("filepath")
                                 or out_dir / f"{v['id']}.mp3")
                     if not path.exists():
                         raise FileNotFoundError(path)
                 except Exception as ex:
-                    print(f"[songless] übersprungen: {job['label']} ({ex})")
+                    print(f"[songless] skipped: {job['label']} ({ex})")
                     errors += 1
                     continue
                 with get_db() as c:
@@ -288,7 +288,7 @@ def _download(pid: int, url: str):
 
         with get_db() as c:
             n = c.execute("SELECT COUNT(*) FROM songs WHERE playlist_id=?", (pid,)).fetchone()[0]
-        msg = f"{n} Songs bereit" + (f", {errors} übersprungen" if errors else "")
+        msg = f"{n} songs ready" + (f", {errors} skipped" if errors else "")
         _set(pid, status="ready" if n else "error", progress=len(jobs), message=msg)
     except Exception as ex:
-        _set(pid, status="error", message=f"Fehler: {str(ex)[:300]}")
+        _set(pid, status="error", message=f"Error: {str(ex)[:300]}")

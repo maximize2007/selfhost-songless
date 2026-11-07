@@ -18,12 +18,12 @@ CREATE TABLE IF NOT EXISTS playlists (
 CREATE TABLE IF NOT EXISTS songs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     playlist_id INTEGER NOT NULL REFERENCES playlists(id) ON DELETE CASCADE,
-    source_id   TEXT,                     -- YouTube- oder Spotify-Track-ID
+    source_id   TEXT,                     -- YouTube, Spotify or Apple Music track ID
     youtube_id  TEXT NOT NULL,
     title       TEXT NOT NULL,
     filename    TEXT NOT NULL,
     duration    REAL,
-    start_offset REAL,                    -- Sekunden Stille am Anfang (wird übersprungen)
+    start_offset REAL,                    -- seconds of leading silence (skipped)
     UNIQUE (playlist_id, youtube_id)
 );
 CREATE TABLE IF NOT EXISTS highscores (
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS highscores (
     score       INTEGER NOT NULL,
     rounds      INTEGER NOT NULL,
     playlist_id INTEGER REFERENCES playlists(id) ON DELETE SET NULL,
-    is_mix      INTEGER DEFAULT 0,        -- 1 = aus allen Playlists gespielt
+    is_mix      INTEGER DEFAULT 0,        -- 1 = played as mix of all playlists
     created_at  TEXT DEFAULT (datetime('now', 'localtime'))
 );
 """
@@ -53,13 +53,13 @@ def get_db():
 def init_db():
     with get_db() as c:
         c.executescript(SCHEMA)
-        # Migration für ältere Datenbanken
+        # migrations for older databases
         if "source_id" not in {r["name"] for r in c.execute("PRAGMA table_info(songs)")}:
             c.execute("ALTER TABLE songs ADD COLUMN source_id TEXT")
         if "start_offset" not in {r["name"] for r in c.execute("PRAGMA table_info(songs)")}:
             c.execute("ALTER TABLE songs ADD COLUMN start_offset REAL")
         if "is_mix" not in {r["name"] for r in c.execute("PRAGMA table_info(highscores)")}:
             c.execute("ALTER TABLE highscores ADD COLUMN is_mix INTEGER DEFAULT 0")
-        # Downloads, die beim letzten Beenden noch liefen, sind abgebrochen
-        c.execute("UPDATE playlists SET status='error', message='Download unterbrochen – bitte Sync drücken' "
+        # downloads still running at the last shutdown were interrupted
+        c.execute("UPDATE playlists SET status='error', message='Download interrupted. Press sync to resume.' "
                   "WHERE status IN ('pending', 'downloading')")

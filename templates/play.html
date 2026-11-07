@@ -5,14 +5,14 @@
 <div class="game-bar">
   <div>
     <span class="game-playlist">{{ title }}</span>
-    <span class="game-round">Song <b id="round">1</b> von <b id="rounds">–</b></span>
+    <span class="game-round">Song <b id="round">1</b> of <b id="rounds">–</b></span>
   </div>
-  <div class="game-score"><b id="score">0</b><span>Punkte</span></div>
+  <div class="game-score"><b id="score">0</b><span>points</span></div>
 </div>
 
-<div class="stages" id="stages" aria-label="Ausschnitte"></div>
+<div class="stages" id="stages" aria-label="Snippets"></div>
 
-<button id="play" class="play" aria-label="Ausschnitt abspielen">
+<button id="play" class="play" aria-label="Play snippet">
   <span>
     <svg class="i-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.2-6.5a1 1 0 0 0 0-1.8L9.5 4.6A1 1 0 0 0 8 5.5Z"/></svg>
     <svg class="i-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2"/></svg>
@@ -21,30 +21,30 @@
 
 <div id="ask" class="ask">
   <div class="guess-row">
-    <label for="guess" class="sr-only">Songtitel</label>
-    <input id="guess" list="titles" placeholder="Songtitel suchen" autocomplete="off">
-    <button id="send" class="btn">Raten</button>
+    <label for="guess" class="sr-only">Song title</label>
+    <input id="guess" list="titles" placeholder="Search song title" autocomplete="off">
+    <button id="send" class="btn">Guess</button>
   </div>
-  <button id="skip" class="text-btn">Überspringen <span id="next-len"></span></button>
+  <button id="skip" class="text-btn">Skip <span id="next-len"></span></button>
 </div>
 
 <p id="feedback" role="status" aria-live="polite"></p>
 
 <div id="reveal" class="reveal" hidden>
-  <p class="reveal-label">Das war</p>
+  <p class="reveal-label">That was</p>
   <p class="answer"></p>
-  <button id="next" class="btn">Nächster Song</button>
+  <button id="next" class="btn">Next song</button>
 </div>
 
 <div id="end" class="end" hidden>
-  <p class="end-score"><b id="final"></b> Punkte</p>
+  <p class="end-score"><b id="final"></b> points</p>
   <ol id="summary" class="summary"></ol>
   <form id="save" class="guess-row">
-    <label for="name" class="sr-only">Dein Name</label>
-    <input id="name" maxlength="20" placeholder="Dein Name" required>
-    <button class="btn">Highscore speichern</button>
+    <label for="name" class="sr-only">Your name</label>
+    <input id="name" maxlength="20" placeholder="Your name" required>
+    <button class="btn">Save highscore</button>
   </form>
-  <a class="text-btn" href="{{ replay_url }}">Nochmal spielen</a>
+  <a class="text-btn" href="{{ replay_url }}">Play again</a>
 </div>
 
 <datalist id="titles">{% for t in titles %}<option value="{{ t }}">{% endfor %}</datalist>
