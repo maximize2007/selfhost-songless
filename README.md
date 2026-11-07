@@ -1,5 +1,3 @@
-# MADE WITH AI
-
 # Songless SELF-HOSTED - MADE WITH AI
 
 A song-guessing game built with Flask. Import a playlist from **YouTube, Spotify or Apple Music**, then guess each song from snippets that get longer every time you miss:
