@@ -1,0 +1,6 @@
+.git
+venv
+__pycache__
+downloads
+songless.db*
+.secret_key

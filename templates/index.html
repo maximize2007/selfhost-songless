@@ -2,6 +2,7 @@
 {% block content %}
 <section class="hero">
   <h1>Can you name the song in 0.1&nbsp;seconds?</h1>
+  {% if is_admin %}
   <p class="lead">Paste a playlist from YouTube, Spotify or Apple Music. The songs download in the background, then you can start playing.</p>
   <form method="post" action="{{ url_for('add_playlist') }}" class="url-form">
     <label for="url" class="sr-only">Link to a YouTube, Spotify or Apple Music playlist</label>
@@ -11,16 +12,28 @@
   {% if request.args.error %}
   <p class="form-error">{{ request.args.error }}. Copy the link via “Share” in the app.</p>
   {% endif %}
+  {% else %}
+  <p class="lead">Pick a playlist and a game mode. Every miss unlocks a longer snippet, but fewer points.</p>
+  {% endif %}
 </section>
 
 <section>
   <div class="section-head">
     <h2>Your playlists</h2>
     {% if mix_count %}
-    <a class="btn btn-small" href="{{ url_for('play_all') }}">Play all ({{ mix_count }} songs)</a>
+    <a class="btn btn-small play-link" href="{{ url_for('play_all') }}">Play all ({{ mix_count }} songs)</a>
     {% endif %}
   </div>
   {% if playlists %}
+  <fieldset class="modes">
+    <legend class="sr-only">Game mode</legend>
+    {% for key, m in modes.items() %}
+    <label>
+      <input type="radio" name="mode" value="{{ key }}" {{ 'checked' if loop.first }}>
+      <span><b>{{ m[0] }}</b><small>{{ m[1] }}</small></span>
+    </label>
+    {% endfor %}
+  </fieldset>
   <ul class="playlists">
     {% for p in playlists %}
     <li class="playlist" data-id="{{ p.id }}" data-status="{{ p.status }}">
@@ -37,11 +50,12 @@
       </div>
       <div class="pl-actions">
         {% if p.songs %}
-        <a class="btn btn-small" href="{{ url_for('play', pid=p.id) }}">Play</a>
+        <a class="btn btn-small play-link" href="{{ url_for('play', pid=p.id) }}">Play</a>
         {% endif %}
         <a class="icon-btn" href="{{ url_for('highscores', playlist=p.id) }}" title="Highscores" aria-label="Highscores">
           <svg viewBox="0 0 24 24"><path d="M7 4h10v4a5 5 0 0 1-10 0V4Zm5 9v4m-4 3h8M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>
         </a>
+        {% if is_admin %}
         <form method="post" action="{{ url_for('sync_playlist', pid=p.id) }}">
           <button class="icon-btn" title="Download new songs" aria-label="Download new songs" {% if p.status == 'downloading' %}disabled{% endif %}>
             <svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8m0-4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16m0 4v-4h-4"/></svg>
@@ -52,21 +66,44 @@
             <svg viewBox="0 0 24 24"><path d="M5 7h14M10 11v6m4-6v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
           </button>
         </form>
+        {% endif %}
       </div>
     </li>
     {% endfor %}
   </ul>
   {% else %}
-  <p class="empty">No playlists yet. Paste a link above to get started.</p>
+  <p class="empty">No playlists yet. {{ 'Paste a link above to get started.' if is_admin else 'The admin has not imported one so far.' }}</p>
   {% endif %}
 </section>
 {% endblock %}
 
 {% block scripts %}
 <script>
+// Game mode: remembered in the browser and added to every Play link
+const radios = [...document.querySelectorAll('input[name="mode"]')];
+const applyMode = (mode) => document.querySelectorAll('.play-link').forEach(a => {
+  const url = new URL(a.href);
+  url.searchParams.set('mode', mode);
+  a.href = url;
+});
+let saved = null;
+try { saved = localStorage.getItem('songless-mode'); } catch {}
+const start = radios.find(r => r.value === saved) || radios[0];
+if (start) { start.checked = true; applyMode(start.value); }
+radios.forEach(r => r.addEventListener('change', () => {
+  applyMode(r.value);
+  try { localStorage.setItem('songless-mode', r.value); } catch {}
+}));
+
+// Download progress
 document.querySelectorAll('.playlist[data-status="downloading"], .playlist[data-status="pending"]').forEach(el => {
   const timer = setInterval(async () => {
-    const s = await (await fetch(`/api/playlist/${el.dataset.id}`)).json();
+    let s;
+    try {
+      const r = await fetch(`/api/playlist/${el.dataset.id}`);
+      if (r.status === 404) { clearInterval(timer); return location.reload(); }   // deleted in another tab
+      s = await r.json();
+    } catch { return; }                                                           // server restarting
     el.querySelector('.status').textContent = s.message || s.status;
     const bar = el.querySelector('.meter > div');
     if (bar && s.total) bar.style.width = (100 * s.progress / s.total) + '%';

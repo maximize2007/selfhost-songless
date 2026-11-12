@@ -4,6 +4,7 @@
 <section class="scores-head">
   <h1>Highscores</h1>
   <form method="get">
+    <input type="hidden" name="mode" value="{{ mode }}">
     <label for="playlist" class="sr-only">Filter by playlist</label>
     <select id="playlist" name="playlist" onchange="this.form.submit()">
       <option value="">All entries</option>
@@ -15,6 +16,13 @@
   </form>
 </section>
 
+<nav class="tabs" aria-label="Game mode">
+  {% for key, m in modes.items() %}
+  <a href="{{ url_for('highscores', mode=key, playlist=sel or None) }}" {% if key == mode %}aria-current="page"{% endif %}>{{ m[0] }}</a>
+  {% endfor %}
+</nav>
+{% if mode == 'daily' %}<p class="tab-note">Today's challenge. The list starts fresh every day.</p>{% endif %}
+
 {% if scores %}
 <ol class="scores">
   {% for h in scores %}
@@ -24,11 +32,11 @@
       <span class="name">{{ h.name }}</span>
       <span class="where">{{ 'Mix of all playlists' if h.is_mix else (h.playlist or 'Deleted playlist') }}, {{ h.created_at[:10] }}</span>
     </span>
-    <span class="pts"><b>{{ h.score }}</b><small>of {{ h.rounds * 100 }}</small></span>
+    <span class="pts"><b>{{ h.score }}</b><small>{% if h.mode == 'survival' %}{{ h.rounds }} {{ 'song' if h.rounds == 1 else 'songs' }}{% else %}of {{ h.rounds * max_points }}{% endif %}</small></span>
   </li>
   {% endfor %}
 </ol>
 {% else %}
-<p class="empty">No entries yet. Play a round and be the first.</p>
+<p class="empty">{{ "Nobody has finished today's challenge yet. Be the first." if mode == 'daily' else 'No entries yet. Play a round and be the first.' }}</p>
 {% endif %}
 {% endblock %}

@@ -1,0 +1,14 @@
+services:
+  songless:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - songless-data:/data
+    environment:
+      DOWNLOAD_WORKERS: 4
+      # ADMIN_PASSWORD: change-me      # uncomment so only you can import, sync and delete playlists
+    restart: unless-stopped
+
+volumes:
+  songless-data:

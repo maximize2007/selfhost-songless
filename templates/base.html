@@ -21,6 +21,11 @@
   <nav>
     <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Playlists</a>
     <a href="{{ url_for('highscores') }}" {% if request.endpoint == 'highscores' %}aria-current="page"{% endif %}>Highscores</a>
+    {% if admin_enabled and is_admin %}
+    <form method="post" action="{{ url_for('logout') }}"><button class="nav-btn">Log out</button></form>
+    {% elif admin_enabled %}
+    <a href="{{ url_for('login') }}" {% if request.endpoint == 'login' %}aria-current="page"{% endif %}>Admin</a>
+    {% endif %}
   </nav>
 </header>
 <main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>

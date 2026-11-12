@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Admin login – Songless{% endblock %}
+{% block content %}
+<section class="hero">
+  <h1>Admin login</h1>
+  <p class="lead">Playing is open to everyone. Importing, syncing and deleting playlists needs the admin password.</p>
+  <form method="post" class="url-form">
+    <label for="password" class="sr-only">Admin password</label>
+    <input id="password" name="password" type="password" placeholder="Admin password" autocomplete="current-password" required autofocus>
+    <button class="btn">Log in</button>
+  </form>
+  {% if error %}<p class="form-error" role="alert">Wrong password.</p>{% endif %}
+</section>
+{% endblock %}
