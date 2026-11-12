@@ -6,17 +6,20 @@ import shutil
 import subprocess
 import threading
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import yt_dlp
 from yt_dlp.utils import download_range_func
 
-from database import get_db
+from database import DATA_DIR, get_db
 
-DOWNLOAD_DIR = Path(__file__).parent / "downloads"
+DOWNLOAD_DIR = DATA_DIR / "downloads"
 MAX_SONGS = 200
 CLIP_SECONDS = 30            # seconds downloaded from the start of each song (buffer for leading silence)
 SILENCE_DB = -60            # anything quieter than this at the start counts as silence and is skipped
+WORKERS = max(1, int(os.environ.get("DOWNLOAD_WORKERS", 4)))   # songs downloaded at the same time (all playlists)
 
 SPOTIFY_RE = re.compile(r"(?:open\.spotify\.com/(?:intl-[\w-]+/)?playlist/|spotify:playlist:)([A-Za-z0-9]+)")
 APPLE_RE = re.compile(r"^https?://(?:embed\.)?music\.apple\.com/[a-z]{2}/(?:playlist|album)/", re.I)
@@ -105,6 +108,21 @@ def is_apple(url: str) -> bool:
 
 def is_supported_url(url: str) -> bool:
     return bool(YOUTUBE_RE.match(url)) or is_spotify(url) or is_apple(url)
+
+
+_TRACKING = {"si", "index", "pp", "feature", "t", "ab_channel", "utm_source", "utm_medium", "utm_campaign"}
+
+
+def canonical_url(url: str) -> str:
+    """Strips share/tracking parameters, so the same playlist pasted twice isn't imported twice."""
+    url = (url or "").strip()
+    if m := SPOTIFY_RE.search(url):
+        return f"https://open.spotify.com/playlist/{m.group(1)}"
+    if is_apple(url) or YOUTUBE_RE.match(url):
+        parts = urlsplit(url)
+        query = [] if is_apple(url) else [(k, v) for k, v in parse_qsl(parts.query) if k not in _TRACKING]
+        return urlunsplit(parts._replace(query=urlencode(query), fragment=""))
+    return url
 
 
 def _search_job(key, artist, name, duration_s):
@@ -218,73 +236,143 @@ def _find_on_youtube(ydl, query, duration):
 
 
 # ---------------- Download ----------------
+_slots = threading.BoundedSemaphore(WORKERS)     # one global limit, however many playlists are importing
+_active: dict[int, threading.Event] = {}         # playlist id -> cancel flag of its running download
+_lock = threading.Lock()
+_tls = threading.local()                         # yt-dlp objects are not thread-safe: every worker gets its own
+
+
 def _set(pid: int, **cols):
     sql = ", ".join(f"{k}=?" for k in cols)
     with get_db() as c:
         c.execute(f"UPDATE playlists SET {sql} WHERE id=?", (*cols.values(), pid))
 
 
-def start_download(pid: int, url: str):
+def start_download(pid: int, url: str) -> bool:
+    """Starts the background download. Returns False if this playlist is already downloading."""
+    with _lock:
+        if pid in _active:
+            return False
+        _active[pid] = threading.Event()
     _set(pid, status="downloading", progress=0, message="Starting…")
     threading.Thread(target=_download, args=(pid, url), daemon=True).start()
+    return True
+
+
+def cancel_download(pid: int):
+    """Stops a running download (used when the playlist is deleted)."""
+    with _lock:
+        if cancel := _active.get(pid):
+            cancel.set()
+
+
+def _read_playlist(url: str):
+    if is_spotify(url):
+        title, jobs = _spotify_jobs(url)
+    elif is_apple(url):
+        title, jobs = _apple_jobs(url)
+    else:
+        title, jobs = _youtube_jobs(url)
+    return title, list({j["key"]: j for j in jobs}.values())      # a song listed twice is downloaded once
+
+
+def _init_worker(out_dir: Path, instances: list):
+    common = {"quiet": True, "js_runtimes": JS_RUNTIMES, "socket_timeout": 30}
+    _tls.ydl = yt_dlp.YoutubeDL({
+        **common,
+        "format": "bestaudio/best",
+        "outtmpl": str(out_dir / "%(id)s.%(ext)s"),
+        # download only the first CLIP_SECONDS instead of the whole song
+        "download_ranges": download_range_func(None, [(0, CLIP_SECONDS)]),
+        "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "5"}],
+        "noplaylist": True,
+        "noprogress": True,
+        "retries": 3,
+    })
+    _tls.search = yt_dlp.YoutubeDL({**common, "extract_flat": True})
+    instances += [_tls.ydl, _tls.search]
+
+
+def _existing(yt_id: str):
+    """A song with this video that is already on disk (in any playlist), or None."""
+    with get_db() as c:
+        rows = c.execute("SELECT title, filename, duration, start_offset FROM songs WHERE youtube_id=?",
+                         (yt_id,)).fetchall()
+    return next((r for r in rows if (DOWNLOAD_DIR / r["filename"]).exists()), None)
+
+
+def _fetch(pid: int, job: dict, out_dir: Path, cancel: threading.Event, claimed: set) -> bool:
+    """Downloads one song (runs in a worker thread). False = nothing to do (duplicate or cancelled)."""
+    with _slots:
+        if cancel.is_set():
+            return False
+        yt_id = job.get("yt_id") or _find_on_youtube(_tls.search, job["query"], job["duration"])
+        if not yt_id:
+            raise LookupError("no YouTube match")
+        with _lock:
+            if yt_id in claimed:                 # two playlist entries lead to the same video
+                return False
+            claimed.add(yt_id)
+
+        title = job.get("title")
+        if old := _existing(yt_id):              # already downloaded for another playlist: copy it
+            out_dir.mkdir(parents=True, exist_ok=True)
+            path = out_dir / Path(old["filename"]).name
+            shutil.copy2(DOWNLOAD_DIR / old["filename"], path)
+            title, duration, offset = title or old["title"], old["duration"], old["start_offset"]
+        else:
+            v = _tls.ydl.extract_info(f"https://www.youtube.com/watch?v={yt_id}", download=True)
+            yt_id = v.get("id") or yt_id
+            path = Path((v.get("requested_downloads") or [{}])[0].get("filepath") or out_dir / f"{yt_id}.mp3")
+            if not path.exists():
+                raise FileNotFoundError(path)
+            title = title or clean_title(v)
+            duration, offset = min(v.get("duration") or CLIP_SECONDS, CLIP_SECONDS), None
+        if offset is None:
+            offset = detect_start(path)
+        if cancel.is_set():
+            return False
+        with get_db() as c:
+            c.execute(
+                "INSERT OR IGNORE INTO songs "
+                "(playlist_id, source_id, youtube_id, title, filename, duration, start_offset) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (pid, job["key"], yt_id, title, path.relative_to(DOWNLOAD_DIR).as_posix(), duration, offset),
+            )
+        return True
 
 
 def _download(pid: int, url: str):
+    cancel = _active[pid]
+    out_dir = DOWNLOAD_DIR / str(pid)
     try:
         _set(pid, message="Reading playlist…")
-        if is_spotify(url):
-            title, jobs = _spotify_jobs(url)
-        elif is_apple(url):
-            title, jobs = _apple_jobs(url)
-        else:
-            title, jobs = _youtube_jobs(url)
-        _set(pid, title=title, total=len(jobs))
-
+        title, jobs = _read_playlist(url)
         with get_db() as c:
-            have = {r[0] for r in c.execute(
-                "SELECT COALESCE(source_id, youtube_id) FROM songs WHERE playlist_id=?", (pid,))}
+            rows = c.execute("SELECT COALESCE(source_id, youtube_id), youtube_id FROM songs WHERE playlist_id=?",
+                             (pid,)).fetchall()
+        have, claimed = {r[0] for r in rows}, {r[1] for r in rows}
+        todo = [j for j in jobs if j["key"] not in have]
+        done, errors = len(jobs) - len(todo), 0
+        _set(pid, title=title, total=len(jobs), progress=done,
+             message=f"Downloading {len(todo)} songs…" if todo else "Up to date")
 
-        out_dir = DOWNLOAD_DIR / str(pid)
-        opts = {
-            "format": "bestaudio/best",
-            "outtmpl": str(out_dir / "%(id)s.%(ext)s"),
-            # download only the first CLIP_SECONDS instead of the whole song
-            "download_ranges": download_range_func(None, [(0, CLIP_SECONDS)]),
-            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "5"}],
-            "noplaylist": True,
-            "js_runtimes": JS_RUNTIMES,
-            "quiet": True,
-            "noprogress": True,
-        }
-        search_opts = {"extract_flat": True, "quiet": True, "js_runtimes": JS_RUNTIMES}
-        errors = 0
-        with yt_dlp.YoutubeDL(opts) as ydl, yt_dlp.YoutubeDL(search_opts) as search:
-            for i, job in enumerate(jobs, 1):
-                _set(pid, progress=i - 1, message=f"Downloading {i}/{len(jobs)}: {job['label']}")
-                if job["key"] in have:
-                    continue
+        instances = []
+        with ThreadPoolExecutor(WORKERS, initializer=_init_worker, initargs=(out_dir, instances)) as pool:
+            futures = {pool.submit(_fetch, pid, job, out_dir, cancel, claimed): job for job in todo}
+            for future in as_completed(futures):
+                job, done = futures[future], done + 1
                 try:
-                    yt_id = job.get("yt_id") or _find_on_youtube(search, job["query"], job["duration"])
-                    if not yt_id:
-                        raise LookupError("no YouTube match")
-                    v = ydl.extract_info(f"https://www.youtube.com/watch?v={yt_id}", download=True)
-                    path = Path((v.get("requested_downloads") or [{}])[0].get("filepath")
-                                or out_dir / f"{v['id']}.mp3")
-                    if not path.exists():
-                        raise FileNotFoundError(path)
+                    future.result()
                 except Exception as ex:
                     print(f"[songless] skipped: {job['label']} ({ex})")
                     errors += 1
-                    continue
-                with get_db() as c:
-                    c.execute(
-                        "INSERT OR IGNORE INTO songs "
-                        "(playlist_id, source_id, youtube_id, title, filename, duration, start_offset) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (pid, job["key"], v["id"], job.get("title") or clean_title(v),
-                         path.relative_to(DOWNLOAD_DIR).as_posix(),
-                         min(v.get("duration") or CLIP_SECONDS, CLIP_SECONDS), detect_start(path)),
-                    )
+                if not cancel.is_set():
+                    _set(pid, progress=done, message=f"Downloaded {done}/{len(jobs)}: {job['label']}")
+        for ydl in instances:
+            ydl.close()
+        if cancel.is_set():
+            return
 
         with get_db() as c:
             n = c.execute("SELECT COUNT(*) FROM songs WHERE playlist_id=?", (pid,)).fetchone()[0]
@@ -292,3 +380,8 @@ def _download(pid: int, url: str):
         _set(pid, status="ready" if n else "error", progress=len(jobs), message=msg)
     except Exception as ex:
         _set(pid, status="error", message=f"Error: {str(ex)[:300]}")
+    finally:
+        with _lock:
+            _active.pop(pid, None)
+        if cancel.is_set():                      # playlist was deleted meanwhile: remove what the workers left
+            shutil.rmtree(out_dir, ignore_errors=True)
