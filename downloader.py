@@ -17,7 +17,7 @@ from yt_dlp.utils import download_range_func
 from database import DATA_DIR, get_db
 
 DOWNLOAD_DIR = DATA_DIR / "downloads"
-MAX_SONGS = 1000
+MAX_SONGS = 200
 CLIP_SECONDS = 30            # seconds downloaded from the start of each song (buffer for leading silence)
 SILENCE_DB = -60            # anything quieter than this at the start counts as silence and is skipped
 SEARCH_RESULTS = 5           # YouTube results compared per song (Spotify and Apple Music playlists)

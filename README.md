@@ -155,7 +155,7 @@ The ⟳ button downloads songs that were added to the playlist since the last im
 ## How it works
 
 - **YouTube** playlists are downloaded directly with yt-dlp.
-- **Spotify and Apple Music** songs are DRM-protected and can't be downloaded. The app reads the track list (artist, title, duration) and searches each song on YouTube. From the top 5 results it picks the one whose length is closest to the original and skips live, cover, remix and slowed versions.
+- **Spotify and Apple Music** songs are DRM-protected and can't be downloaded. The app reads the track list (artist, title, duration) and searches each song on YouTube. From the top 5 results it picks the one whose title and artist fit the track. Length and position in the results only decide between results that fit equally well, and live, cover, remix and slowed versions lose against the original. If nothing fits, the console prints a `weak match` line with the video that was taken.
   - Spotify: read via [`spotifyscraper`](https://pypi.org/project/spotifyscraper/), no API key needed.
   - Apple Music: read from the public web page, no Apple developer account needed.
   - The playlist must be **public**. Very large Spotify playlists may only return the first 100 songs.
