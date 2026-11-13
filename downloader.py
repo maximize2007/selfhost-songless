@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import threading
+import unicodedata
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -16,9 +17,10 @@ from yt_dlp.utils import download_range_func
 from database import DATA_DIR, get_db
 
 DOWNLOAD_DIR = DATA_DIR / "downloads"
-MAX_SONGS = 200
+MAX_SONGS = 1000
 CLIP_SECONDS = 30            # seconds downloaded from the start of each song (buffer for leading silence)
 SILENCE_DB = -60            # anything quieter than this at the start counts as silence and is skipped
+SEARCH_RESULTS = 5           # YouTube results compared per song (Spotify and Apple Music playlists)
 WORKERS = max(1, int(os.environ.get("DOWNLOAD_WORKERS", 4)))   # songs downloaded at the same time (all playlists)
 
 SPOTIFY_RE = re.compile(r"(?:open\.spotify\.com/(?:intl-[\w-]+/)?playlist/|spotify:playlist:)([A-Za-z0-9]+)")
@@ -128,7 +130,7 @@ def canonical_url(url: str) -> str:
 def _search_job(key, artist, name, duration_s):
     name = clean_track_name(name)
     return {"key": key, "title": f"{artist} - {name}", "label": f"{artist} - {name}",
-            "query": f"{artist} {name} audio", "duration": duration_s}
+            "artist": artist, "name": name, "duration": duration_s}
 
 
 def _youtube_jobs(url):
@@ -219,20 +221,39 @@ def _apple_jobs(url):
     return title, jobs[:MAX_SONGS]
 
 
-def _find_on_youtube(ydl, query, duration):
-    """Best of the top 5 results: duration closest to the original, no live/cover versions."""
-    res = ydl.extract_info(f"ytsearch5:{query}", download=False)
+def _words(s: str) -> set:
+    """Lower-case words without accents: 'Beyoncé - Déjà Vu' -> {'beyonce', 'deja', 'vu'}"""
+    s = unicodedata.normalize("NFKD", s or "").casefold()
+    return set(re.findall(r"\w+", "".join(c for c in s if not unicodedata.combining(c))))
+
+
+def _match_score(entry: dict, rank: int, artist: str, name: str, duration: float) -> float:
+    """How badly a search result fits the wanted song (0 = perfect). The words decide, the duration only breaks ties:
+    a result with another title costs 100, another artist 50, a live/cover version 60,
+    every second of difference in length 1 (at most 60), every place further down the result list 3."""
+    title = _words(entry.get("title"))
+    channel = _words(entry.get("channel") or entry.get("uploader"))
+    want = _words(re.sub(r"[\(\[].*?[\)\]]", "", name)) or _words(name)      # without "(feat. …)"
+    who = _words(artist)
+    wrong_title = len(want - title) / len(want) if want else 0
+    wrong_artist = len(who - title - channel) / len(who) if who else 0
+    d = entry.get("duration") or 0
+    diff = min(abs(d - duration), 60) if d and duration else 20
+    bad = _BAD_MATCH.search(entry.get("title") or "") and not _BAD_MATCH.search(f"{artist} {name}")
+    return 100 * wrong_title + 50 * wrong_artist + diff + 3 * rank + (60 if bad else 0)
+
+
+def _find_on_youtube(ydl, artist, name, duration):
+    """Best of the top search results: right title and artist first, then closest duration and position."""
+    res = ydl.extract_info(f"ytsearch{SEARCH_RESULTS}:{artist} {name} audio", download=False)
     cands = [e for e in (res.get("entries") or []) if e and e.get("id")]
     if not cands:
         return None
-
-    def score(e):
-        d = e.get("duration") or 0
-        diff = abs(d - duration) if d and duration else 30
-        bad = _BAD_MATCH.search(e.get("title") or "") and not _BAD_MATCH.search(query)
-        return diff + (120 if bad else 0)
-
-    return min(cands, key=score)["id"]
+    score, best = min(((_match_score(e, i, artist, name, duration), e) for i, e in enumerate(cands)),
+                      key=lambda pair: pair[0])
+    if score >= 100:
+        print(f"[songless] weak match for {artist} - {name}: {best.get('title')} (https://youtu.be/{best['id']})")
+    return best["id"]
 
 
 # ---------------- Download ----------------
@@ -306,7 +327,7 @@ def _fetch(pid: int, job: dict, out_dir: Path, cancel: threading.Event, claimed:
     with _slots:
         if cancel.is_set():
             return False
-        yt_id = job.get("yt_id") or _find_on_youtube(_tls.search, job["query"], job["duration"])
+        yt_id = job.get("yt_id") or _find_on_youtube(_tls.search, job["artist"], job["name"], job["duration"])
         if not yt_id:
             raise LookupError("no YouTube match")
         with _lock:
