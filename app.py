@@ -31,6 +31,7 @@ MODES = {                          # key: (label, description)
     "survival": ("Survival", "Keep going until you miss a song"),
 }
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")   # if set, importing/syncing/deleting playlists needs a login
+SITE_PASSWORD = os.environ.get("SITE_PASSWORD")     # if set, the whole site is private: nothing works without a login
 
 assert len(STAGES) == len(POINTS), "every stage needs its points"
 assert STAGES[-1] <= CLIP_SECONDS, "the longest stage must not exceed CLIP_SECONDS"
@@ -71,6 +72,11 @@ def is_admin() -> bool:
     return not ADMIN_PASSWORD or session.get("admin", False)
 
 
+def has_access() -> bool:
+    """With SITE_PASSWORD the site is private. The admin password opens it too."""
+    return not SITE_PASSWORD or session.get("access", False) or bool(ADMIN_PASSWORD and session.get("admin"))
+
+
 def admin_required(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
@@ -84,7 +90,8 @@ def template_helpers():
     def static(filename):
         path = os.path.join(app.static_folder, filename)
         return url_for("static", filename=filename, v=int(os.path.getmtime(path)))
-    return {"static": static, "is_admin": is_admin(), "admin_enabled": bool(ADMIN_PASSWORD), "modes": MODES}
+    return {"static": static, "is_admin": is_admin(), "admin_enabled": bool(ADMIN_PASSWORD), "modes": MODES,
+            "has_access": has_access(), "logged_in": bool(session.get("access") or session.get("admin"))}
 
 
 @app.before_request
@@ -92,6 +99,23 @@ def block_cross_site_posts():
     """Another website must not be able to delete playlists or post guesses through the visitor's browser."""
     if request.method == "POST" and request.headers.get("Sec-Fetch-Site") == "cross-site":
         abort(403)
+
+
+@app.before_request
+def require_login():
+    """Private site: without a login only the login page (and its stylesheet) is reachable."""
+    if has_access() or request.endpoint in ("login", "static"):
+        return None
+    if request.path.startswith("/api/"):
+        abort(401)
+    return redirect(url_for("login"))
+
+
+@app.after_request
+def keep_out_of_search_engines(response):
+    if SITE_PASSWORD:
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
 
 
 # ---------------- Helpers ----------------
@@ -173,14 +197,24 @@ def advance(c, g, verdict: str) -> str:
     return "correct" if pts else "failed"
 
 
-# ---------------- Admin login (only with ADMIN_PASSWORD) ----------------
+# ---------------- Login (only with SITE_PASSWORD and/or ADMIN_PASSWORD) ----------------
+def _is(password: str, expected) -> bool:
+    return bool(expected) and secrets.compare_digest(password.encode(), expected.encode())
+
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if is_admin():
+    """One password field: the site password lets you play, the admin password also lets you manage playlists."""
+    if has_access() and is_admin():
         return redirect(url_for("index"))
     if request.method == "POST":
-        if secrets.compare_digest(request.form.get("password", "").encode(), ADMIN_PASSWORD.encode()):
-            session["admin"] = session.permanent = True
+        password = request.form.get("password", "")
+        admin = _is(password, ADMIN_PASSWORD)
+        if admin or _is(password, SITE_PASSWORD):
+            session.permanent = True
+            session["access"] = True
+            if admin:
+                session["admin"] = True
             return redirect(url_for("index"))
         time.sleep(1)                               # slows down guessing
     return render_template("login.html", error=request.method == "POST")
@@ -189,6 +223,7 @@ def login():
 @app.post("/logout")
 def logout():
     session.pop("admin", None)
+    session.pop("access", None)
     return redirect(url_for("index"))
 
 

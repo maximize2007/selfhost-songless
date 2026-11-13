@@ -196,7 +196,8 @@ The ⟳ button downloads songs that were added to the playlist since the last im
 | Variable | Meaning |
 |----------|---------|
 | `DENO_PATH` | Full path to `deno.exe` if the app can't find Deno |
-| `ADMIN_PASSWORD` | If set, importing, syncing and deleting playlists needs a login. Playing stays open to everyone. |
+| `SITE_PASSWORD` | If set, the whole site is private: visitors only see a login page until they enter this password. |
+| `ADMIN_PASSWORD` | If set, importing, syncing and deleting playlists needs a login. Without `SITE_PASSWORD`, playing stays open to everyone. The admin password also works on the site login. |
 | `HOST`, `PORT` | Address and port of `python app.py`. Default `127.0.0.1` and `5000`. Use `HOST=0.0.0.0` to let other devices in your network play. |
 | `DOWNLOAD_WORKERS` | Songs downloaded at the same time. Default `4`. |
 | `SONGLESS_DATA` | Folder for the database, the downloads and the session key. Default: the project folder. |
@@ -207,6 +208,7 @@ The ⟳ button downloads songs that were added to the playlist since the last im
 
 Start the app with `HOST=0.0.0.0` (or use Docker) and set `ADMIN_PASSWORD`, so that guests can play but not
 delete your playlists. If you put it on the internet, run it behind a reverse proxy with HTTPS.
+Set `SITE_PASSWORD` as well if strangers should not see the site at all: then everything except the login page is locked.
 Run only one server process: the downloads live in background threads of that process.
 
 ---

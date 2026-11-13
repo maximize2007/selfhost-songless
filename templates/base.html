@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  {% if not has_access %}<meta name="robots" content="noindex, nofollow">{% endif %}
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Songless{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,15 +19,18 @@
     </svg>
     Songless
   </a>
+  {% if has_access %}
   <nav>
     <a href="{{ url_for('index') }}" {% if request.endpoint == 'index' %}aria-current="page"{% endif %}>Playlists</a>
     <a href="{{ url_for('highscores') }}" {% if request.endpoint == 'highscores' %}aria-current="page"{% endif %}>Highscores</a>
-    {% if admin_enabled and is_admin %}
-    <form method="post" action="{{ url_for('logout') }}"><button class="nav-btn">Log out</button></form>
-    {% elif admin_enabled %}
+    {% if not is_admin %}
     <a href="{{ url_for('login') }}" {% if request.endpoint == 'login' %}aria-current="page"{% endif %}>Admin</a>
     {% endif %}
+    {% if logged_in %}
+    <form method="post" action="{{ url_for('logout') }}"><button class="nav-btn">Log out</button></form>
+    {% endif %}
   </nav>
+  {% endif %}
 </header>
 <main class="{% block main_class %}{% endblock %}">{% block content %}{% endblock %}</main>
 {% block scripts %}{% endblock %}
